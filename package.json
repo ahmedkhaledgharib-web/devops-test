@@ -1,0 +1,25 @@
+{
+  "name": "devops-test",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "node --watch src/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ahmedkhaledgharib-web/devops-test.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/ahmedkhaledgharib-web/devops-test/issues"
+  },
+  "homepage": "https://github.com/ahmedkhaledgharib-web/devops-test#readme",
+  "dependencies": {
+    "dotenv": "^18.0.8",
+    "express": "^5.3.0"
+  }
+}
