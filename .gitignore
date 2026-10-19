@@ -1,2 +1,10 @@
 node_modules
+
+# Runtime output and Neon Local metadata
+logs/
+.neon_local/
+
+# Environment files: commit only the *.example templates
+.env
 .env.*
+!.env.*.example

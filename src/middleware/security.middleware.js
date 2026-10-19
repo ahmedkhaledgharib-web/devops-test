@@ -7,13 +7,13 @@ export const securityMiddleware = async (req, res, next) => {
         let limit;
         switch (role) {
             case "admin":
-                limit = 10; // Admins can make 100 requests per minute
+                limit = 200; // Admins can make 100 requests per minute
                 break;
             case "user":
-                limit = 5; // Regular users can make 50 requests per minute
+                limit = 20; // Regular users can make 50 requests per minute
                 break;
             default:
-                limit = 2; // Guests can make 20 requests per minute
+                limit = 100; // Guests can make 20 requests per minute
         }
         const client = aj.withRule(slidingWindow({ mode: "LIVE", interval: '1m', max: limit, name: `slidingWindow-${role}` }));
         const decision = await client.protect(req);

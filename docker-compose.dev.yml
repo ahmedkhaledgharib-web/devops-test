@@ -1,0 +1,65 @@
+name: devops-test-dev
+
+services:
+  # Neon Local proxies the Neon serverless protocol (HTTP) and the Postgres
+  # protocol (used by drizzle-kit) to an ephemeral branch of your Neon project.
+  neon-local:
+    image: neondatabase/neon_local:latest
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    env_file:
+      - .env.development
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U neon"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  # One-shot migration runner. It waits for the proxy, then applies the
+  # Drizzle migrations to the freshly created ephemeral branch.
+  migrate:
+    build:
+      context: .
+      target: development
+    command: ["node", "scripts/db-migrate.js"]
+    env_file:
+      - .env.development
+    depends_on:
+      neon-local:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      target: development
+    command: ["npm", "run", "dev"]
+    env_file:
+      - .env.development
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      # Keep the dependencies installed in the image instead of the host folder.
+      - /app/node_modules
+      - ./logs:/app/logs
+    depends_on:
+      neon-local:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

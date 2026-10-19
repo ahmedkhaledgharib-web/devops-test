@@ -1,0 +1,19 @@
+.git
+.gitignore
+node_modules
+npm-debug.log*
+
+# Never bake environment files or credentials into an image
+.env
+.env.*
+
+# Compose/build metadata is not needed inside the image
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Runtime output and Neon Local metadata
+logs
+.neon_local
+
+README.md

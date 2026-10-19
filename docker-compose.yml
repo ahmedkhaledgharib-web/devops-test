@@ -1,0 +1,20 @@
+name: devops-test-dev
+
+# Default compose file: local development with Neon Local.
+# Equivalent to: docker compose -f docker-compose.dev.yml up --build
+# Production:    docker compose -f docker-compose.prod.yml up -d --build
+services:
+  neon-local:
+    extends:
+      file: docker-compose.dev.yml
+      service: neon-local
+
+  migrate:
+    extends:
+      file: docker-compose.dev.yml
+      service: migrate
+
+  app:
+    extends:
+      file: docker-compose.dev.yml
+      service: app
