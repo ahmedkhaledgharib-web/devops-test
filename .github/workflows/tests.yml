@@ -1,0 +1,201 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+  pull_request:
+    branches:
+      - main
+      - staging
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_ENV: test
+      NODE_OPTIONS: --experimental-vm-modules
+      DATABASE_URL: ${{ secrets.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/devops_test' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests with coverage
+        id: tests
+        continue-on-error: true
+        run: |
+          npm test -- \
+            --ci \
+            --coverage \
+            --coverageReporters=text \
+            --coverageReporters=json-summary \
+            --json \
+            --outputFile=jest-results.json
+
+      - name: Annotate test failures
+        if: steps.tests.outcome == 'failure'
+        run: |
+          if [ ! -f jest-results.json ]; then
+            echo "::error title=Test run failed::Jest did not produce a results file, so the suite failed before it could report individual tests. Check the 'Run tests with coverage' logs."
+            exit 0
+          fi
+
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          import path from "node:path";
+
+          const toRepoPath = (file) => {
+            const relative = path.relative(process.cwd(), file);
+            return (relative && !relative.startsWith("..") ? relative : file)
+              .split(path.sep)
+              .join("/");
+          };
+
+          const escapeData = (value = "") =>
+            String(value)
+              .replace(/%/g, "%25")
+              .replace(/\r/g, "%0D")
+              .replace(/\n/g, "%0A");
+
+          const escapeProperty = (value = "") =>
+            escapeData(value).replace(/:/g, "%3A").replace(/,/g, "%2C");
+
+          const results = JSON.parse(fs.readFileSync("jest-results.json", "utf8"));
+          const failedAssertions = [];
+
+          for (const suite of results.testResults ?? []) {
+            for (const assertion of suite.assertionResults ?? []) {
+              if (assertion.status === "failed") {
+                failedAssertions.push({ suite: suite.name, assertion });
+              }
+            }
+          }
+
+          if (failedAssertions.length === 0) {
+            console.log(
+              "::error title=Test run failed::Jest exited with a failure but reported no failed assertions. Check the run logs for setup or configuration errors.",
+            );
+            process.exit(0);
+          }
+
+          for (const { suite, assertion } of failedAssertions) {
+            const location = assertion.location ?? {};
+            const line = location.line ?? 1;
+            const column = location.column ?? 1;
+            const message = ((assertion.failureMessages ?? []).join("\n").trim() || "Test failed")
+              .split("\n")
+              .slice(0, 5)
+              .join(" ");
+            const file = toRepoPath(suite);
+
+            console.log(
+              `::error file=${file},line=${line},col=${column},title=${escapeProperty(
+                assertion.fullName ?? assertion.title,
+              )}::${escapeData(message)}`,
+            );
+          }
+          NODE
+
+      - name: Write job summary
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+
+          const readJson = (file) => {
+            try {
+              return JSON.parse(fs.readFileSync(file, "utf8"));
+            } catch {
+              return null;
+            }
+          };
+
+          const results = readJson("jest-results.json");
+          const coverage = readJson("coverage/coverage-summary.json");
+          const lines = ["## 🧪 Test Results", ""];
+
+          if (results) {
+            const failed = results.numFailedTests ?? 0;
+            const status =
+              results.success === false || failed > 0 ? "❌ Tests failed" : "✅ All tests passed";
+
+            lines.push(
+              "| Metric | Count |",
+              "| --- | --- |",
+              `| Test suites | ${results.numTotalTestSuites ?? 0} |`,
+              `| Tests | ${results.numTotalTests ?? 0} |`,
+              `| Passed | ${results.numPassedTests ?? 0} |`,
+              `| Failed | ${failed} |`,
+              `| Skipped | ${results.numPendingTests ?? 0} |`,
+              "",
+              `**Status:** ${status}`,
+              "",
+            );
+          } else {
+            lines.push(
+              "⚠️ No Jest results file was produced, so the test run did not complete.",
+              "",
+            );
+          }
+
+          if (coverage?.total) {
+            const pct = (value) =>
+              typeof value === "number" ? `${value.toFixed(2)}%` : "n/a";
+
+            lines.push(
+              "### Coverage",
+              "",
+              "| Metric | Coverage |",
+              "| --- | --- |",
+              `| Lines | ${pct(coverage.total.lines?.pct)} |`,
+              `| Statements | ${pct(coverage.total.statements?.pct)} |`,
+              `| Functions | ${pct(coverage.total.functions?.pct)} |`,
+              `| Branches | ${pct(coverage.total.branches?.pct)} |`,
+              "",
+            );
+          } else {
+            lines.push("### Coverage", "", "⚠️ No coverage summary was generated.", "");
+          }
+
+          const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+          if (summaryPath) {
+            fs.appendFileSync(summaryPath, `${lines.join("\n")}\n`);
+          } else {
+            console.log(lines.join("\n"));
+          }
+          NODE
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Fail when tests fail
+        if: steps.tests.outcome == 'failure'
+        run: |
+          echo "Tests failed. See the annotations above for the failing tests."
+          exit 1

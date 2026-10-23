@@ -238,6 +238,27 @@ docker compose -f docker-compose.dev.yml run --rm migrate
 docker compose -f docker-compose.prod.yml run --rm migrate
 ```
 
+## CI/CD (GitHub Actions)
+
+Three workflows live in `.github/workflows`:
+
+| Workflow | Triggers | What it does |
+| --- | --- | --- |
+| `lint-and-format.yml` | push and pull request to `main`, `staging` | `npm ci`, then `npm run lint` and `npm run format:check`; annotates failures with the fix commands |
+| `tests.yml` | push and pull request to `main`, `staging` | Runs Jest with coverage (`NODE_ENV=test`), uploads the coverage report for 30 days, writes a job summary, annotates failing tests |
+| `docker-build-and-push.yml` | push to `main`, `workflow_dispatch` | Builds the `production` Dockerfile target for `linux/amd64` and `linux/arm64` and pushes it to Docker Hub with branch, SHA, `latest` and `prod-YYYYMMDD-HHmmss` tags |
+
+Repository secrets used by the workflows:
+
+| Secret | Workflow | Purpose |
+| --- | --- | --- |
+| `DOCKER_USERNAME` | `docker-build-and-push.yml` | Docker Hub account; also used as the image namespace |
+| `DOCKER_PASSWORD` | `docker-build-and-push.yml` | Docker Hub access token |
+| `DATABASE_URL` | `tests.yml` | Database used by the test suite (falls back to a local placeholder when unset) |
+
+The lint workflow calls the `lint`, `lint:fix`, `format` and `format:check` npm
+scripts, which must be provided by ESLint and Prettier in `package.json`.
+
 ## Common tasks
 
 ```bash

@@ -1,0 +1,78 @@
+name: Lint & Format
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+  pull_request:
+    branches:
+      - main
+      - staging
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-and-format-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-format:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        id: lint
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee eslint-report.txt
+
+      - name: Run Prettier check
+        id: format
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          npm run format:check 2>&1 | tee prettier-report.txt
+
+      - name: Annotate lint and format failures
+        if: steps.lint.outcome == 'failure' || steps.format.outcome == 'failure'
+        run: |
+          if [ "${{ steps.lint.outcome }}" = "failure" ]; then
+            echo "::error title=ESLint found problems::ESLint reported issues. Run 'npm run lint:fix' locally to auto-fix what it can, resolve the rest manually, then commit the changes. Full report: eslint-report.txt artifact."
+          fi
+          if [ "${{ steps.format.outcome }}" = "failure" ]; then
+            echo "::error title=Prettier check failed::One or more files are not formatted. Run 'npm run format' locally, then commit the changes. Full report: prettier-report.txt artifact."
+          fi
+
+      - name: Upload lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-reports
+          path: |
+            eslint-report.txt
+            prettier-report.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Fail when lint or format issues were found
+        if: steps.lint.outcome == 'failure' || steps.format.outcome == 'failure'
+        run: |
+          echo "Lint and/or format checks failed. See the annotations above for the commands that fix them."
+          exit 1
